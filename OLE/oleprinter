@@ -1,0 +1,216 @@
+*&---------------------------------------------------------------------*
+*& Report ZHUH_OLEPRINTER
+*&---------------------------------------------------------------------*
+*& OLE修改打印机
+*& Changing ActivePrinter in Excel
+*& 修改EXCEL调用的打印机（Word是一样的，可参考该程序）
+*&---------------------------------------------------------------------*
+REPORT ZHUH_OLEPRINTER.
+
+DATA: LO_APPLICATION    TYPE OLE2_OBJECT,
+      LO_WORKBOOKS      TYPE OLE2_OBJECT,
+      LO_ACTIVEWORKBOOK TYPE OLE2_OBJECT,
+      LE_STRING         TYPE STRING,
+      LE_PRINTER        TYPE STRING,
+      LE_SEPARATOR      TYPE STRING,
+      LE_PORT           TYPE STRING.
+DATA: CONTROL_PARAMETERS TYPE  SSFCTRLOP,
+      JOB_OUTPUT_OPTIONS TYPE  SSFCRESOP.
+DATA: REG_VALUE TYPE STRING.
+DATA: L_FDPOS TYPE I.
+DATA: L_PREVIEW,"Preview
+      L_DEFAULT."Use the default printer
+DATA: LT_LIST TYPE TABLE OF FRPRLIST WITH HEADER LINE.
+DATA : BEGIN OF LT_VALUE  OCCURS 0,
+         VALUE(50) TYPE C,
+       END OF LT_VALUE.
+DATA : LT_FIELD_TAB  TYPE TABLE OF DFIES,
+       WA_FIELD      LIKE LINE OF LT_FIELD_TAB,
+       LT_RETURN_TAB TYPE TABLE OF DDSHRETVAL,
+       WA_RETURN     LIKE LINE OF LT_RETURN_TAB.
+
+PARAMETERS: CK_PRE AS CHECKBOX,
+            PA_PRT TYPE RSPOPRNAME AS LISTBOX VISIBLE LENGTH 30. " DEFAULT 'Microsoft Print to PDF'.
+
+INITIALIZATION.
+*使用RSPO_LIST_FRONTEND_PRINTERS也可以获取，LIST中第一项为默认打印机，
+*LIST后续为打印机列表，所以会有重复项，比下面这个多一条数据(默认打印机)
+  CALL FUNCTION 'RSPO_FRONTEND_PRINTERS_FOR_DEV'
+    EXPORTING
+      DEVICE         = 'LP01'
+    IMPORTING
+      PRDEFAULT      = PA_PRT
+*     IS_FRONTEND    =
+*     IS_MAIL        =
+*     NO_CHOICE      =
+    TABLES
+      LIST           = LT_LIST[]
+    EXCEPTIONS
+      NO_LIST        = 1
+      LIST_TRUNCATED = 2
+      NAME_NOT_FOUND = 3
+      OTHERS         = 4.
+  IF SY-SUBRC <> 0.
+    MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+            WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+  LOOP AT LT_LIST.
+    CLEAR LT_VALUE.
+    LT_VALUE-VALUE = LT_LIST-PRNAME.
+    APPEND LT_VALUE.
+  ENDLOOP.
+
+  CLEAR WA_FIELD.
+  WA_FIELD-TABNAME = 'FRPRLIST'.
+  WA_FIELD-FIELDNAME = 'PRNAME'.
+  APPEND WA_FIELD TO LT_FIELD_TAB.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR PA_PRT.
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      RETFIELD        = 'PRNAME'
+    TABLES
+      VALUE_TAB       = LT_VALUE
+      FIELD_TAB       = LT_FIELD_TAB
+      RETURN_TAB      = LT_RETURN_TAB
+    EXCEPTIONS
+      PARAMETER_ERROR = 1
+      NO_VALUES_FOUND = 2
+      OTHERS          = 3.
+  IF SY-SUBRC <> 0.
+    MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+            WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ELSE.
+    READ TABLE LT_RETURN_TAB INTO WA_RETURN INDEX 1.
+    PA_PRT = WA_RETURN-FIELDVAL.
+  ENDIF.
+
+* 下面这个函数设置的下拉列表不好看，键值40显示太长
+*  CALL FUNCTION 'VRM_SET_VALUES'
+*    EXPORTING
+*      ID              = 'PA_PRT'
+*      VALUES          = LT_VALUE
+*    EXCEPTIONS
+*      ID_ILLEGAL_NAME = 1
+*      OTHERS          = 2.
+
+
+START-OF-SELECTION.
+  " Select Printer
+  L_PREVIEW = CK_PRE.
+  LE_PRINTER = PA_PRT.
+* 不使用SSF_OPEN 与SSF_CLOSE 是因为这两个函数主要是为smartforms服务，
+* 选择打印预览后，会强行显示一个打印预览页，不友好
+* 再一个是，有时候会出现GUI无反应的情况，原因不明（SAT分析是OLE自动调用函数占用时间特别长：程序SAPLOLEA调用函数AC_FLUSH_CALL_INTERNAL）
+*  CALL FUNCTION 'SSF_OPEN'
+*    EXPORTING
+*      USER_SETTINGS      = 'X'
+*    IMPORTING
+*      JOB_OUTPUT_OPTIONS = JOB_OUTPUT_OPTIONS
+*    EXCEPTIONS
+*      FORMATTING_ERROR   = 1
+*      INTERNAL_ERROR     = 2
+*      SEND_ERROR         = 3
+*      USER_CANCELED      = 4
+*      OTHERS             = 5.
+*  IF SY-SUBRC <> 0 OR JOB_OUTPUT_OPTIONS-RQPOSNAME IS INITIAL.
+*    MESSAGE 'No Printer Selected.' TYPE 'S' DISPLAY LIKE 'E'.
+*    EXIT.
+*  ENDIF.
+*  L_PREVIEW = JOB_OUTPUT_OPTIONS-TDPREVIEW.
+*  LE_PRINTER = JOB_OUTPUT_OPTIONS-RQPOSNAME.
+
+  " Get the printer port number
+* CL_GUI_FRONTEND_SERVICES=>REGISTRY*有独写注册表的方法
+  CALL METHOD CL_GUI_FRONTEND_SERVICES=>REGISTRY_GET_VALUE
+    EXPORTING
+      ROOT                 = CL_GUI_FRONTEND_SERVICES=>HKEY_CURRENT_USER "HKEY_CURRENT_USER即注册表的根节点
+      KEY                  = 'Software\Microsoft\Windows NT\CurrentVersion\Devices'
+      VALUE                = LE_PRINTER "注册表的值
+*     NO_FLUSH             =
+    IMPORTING
+      REG_VALUE            = REG_VALUE
+    EXCEPTIONS
+      GET_REGVALUE_FAILED  = 1
+      CNTL_ERROR           = 2
+      ERROR_NO_GUI         = 3
+      NOT_SUPPORTED_BY_GUI = 4
+      OTHERS               = 5.
+  IF SY-SUBRC <> 0.
+    L_DEFAULT = 'X'.
+  ENDIF.
+* 值一般为： winspool,Ne05:
+  SEARCH REG_VALUE FOR 'Ne'.
+  IF SY-SUBRC = 0.
+    L_FDPOS = SY-FDPOS.
+    LE_PORT = REG_VALUE+L_FDPOS(5).
+  ELSE.
+    SEARCH REG_VALUE FOR 'winspool,'.
+    IF SY-SUBRC = 0.
+      L_FDPOS = SY-FDPOS + STRLEN( 'winspool,' ).
+      LE_PORT = REG_VALUE+L_FDPOS(5).
+    ELSE.
+      L_DEFAULT = 'X'.
+    ENDIF.
+  ENDIF.
+* 不同语言不一样
+  CASE SY-LANGU.
+    WHEN '1'.
+      LE_SEPARATOR = '在'.
+    WHEN 'E'.
+      LE_SEPARATOR = 'on'.
+    WHEN 'D'.
+      LE_SEPARATOR = 'auf'.
+    WHEN OTHERS.
+  ENDCASE.
+  CONCATENATE LE_PRINTER LE_SEPARATOR LE_PORT INTO LE_STRING SEPARATED BY SPACE.
+
+  " open excel and change the ActivePrinter
+  CREATE OBJECT LO_APPLICATION 'Excel.Application'.
+  CASE L_PREVIEW.
+    WHEN 'X'.
+      SET PROPERTY OF LO_APPLICATION 'Visible' = 1.
+    WHEN OTHERS.
+      SET PROPERTY OF LO_APPLICATION 'Visible' = 0.
+  ENDCASE.
+  CALL METHOD OF LO_APPLICATION 'Workbooks' = LO_WORKBOOKS.
+  CALL METHOD OF LO_WORKBOOKS 'Open'
+    EXPORTING
+      #1 = 'C:\Users\HUH\Desktop\TEST.xlsx'.
+  CALL METHOD OF LO_APPLICATION 'ActiveWorkbook' = LO_ACTIVEWORKBOOK.
+  IF L_DEFAULT = 'X'.
+    GET PROPERTY OF LO_APPLICATION 'ActivePrinter' = LE_STRING.
+    IF LE_SEPARATOR IS NOT INITIAL.
+      SPLIT LE_STRING AT LE_SEPARATOR INTO LE_PRINTER LE_PORT.
+      CONDENSE: LE_PRINTER, LE_PORT.
+    ENDIF.
+  ELSE.
+    SET PROPERTY OF LO_APPLICATION 'ActivePrinter' = LE_STRING.
+  ENDIF.
+*  GET PROPERTY OF LO_APPLICATION 'ACTIVEWORKBOOK' = LO_ACTIVEWORKBOOK.
+  CASE L_PREVIEW.
+    WHEN 'X'.
+      CALL METHOD OF LO_ACTIVEWORKBOOK 'PrintPreview'.
+    WHEN OTHERS.
+      CALL METHOD OF LO_ACTIVEWORKBOOK 'PRINTOUT'.
+  ENDCASE.
+
+  CALL METHOD OF LO_ACTIVEWORKBOOK 'Close'.
+  CALL METHOD OF LO_WORKBOOKS 'Close'.
+  CALL METHOD OF LO_APPLICATION 'Quit'.
+  FREE OBJECT: LO_ACTIVEWORKBOOK,LO_WORKBOOKS,LO_APPLICATION.
+
+  " Close Printer
+*  CALL FUNCTION 'SSF_CLOSE'
+*    EXCEPTIONS
+*      FORMATTING_ERROR = 1
+*      INTERNAL_ERROR   = 2
+*      SEND_ERROR       = 3
+*      OTHERS           = 4.
+*  IF SY-SUBRC <> 0.
+*    MESSAGE 'Close SSF Error.' TYPE 'S' DISPLAY LIKE 'E'.
+*    EXIT.
+*  ENDIF.
+
+  MESSAGE S888(SABAPDEMOS) WITH 'Print via ' LE_PRINTER.
