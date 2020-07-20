@@ -1,0 +1,801 @@
+*&---------------------------------------------------------------------*
+*& Include ZS1BCI0001
+*&---------------------------------------------------------------------*
+
+TYPE-POOLS OLE2  .
+
+DATA: STR_TMPLNAME TYPE STRING,      " 模版名
+      STR_FILENAME TYPE STRING.      " 下载文件名（含路径）
+
+*---EXCEL对象
+*DATA: filename1(100)  TYPE c.
+
+DATA: O_EXCEL     TYPE OLE2_OBJECT,  " Excel object
+      O_PAGESETUP TYPE OLE2_OBJECT.
+
+
+DATA: O_WORKBOOKS     TYPE OLE2_OBJECT,  " list of workbooks
+      O_WORKBOOK      TYPE OLE2_OBJECT,  " workbook
+      O_WORKSHEET     TYPE OLE2_OBJECT,  " Worksheet object
+      O_SHEET_RANGE   TYPE OLE2_OBJECT,
+      O_SHEET_CELL    TYPE OLE2_OBJECT,
+      O_SHEET_ROW     TYPE OLE2_OBJECT,
+      O_SHEET_COL     TYPE OLE2_OBJECT,
+      O_SHEET_COLUMNS TYPE OLE2_OBJECT,
+      O_SHEET_BORDERS TYPE OLE2_OBJECT.
+
+DATA: O_TMPL_WORKBOOKS TYPE OLE2_OBJECT,  " list of workbooks
+      O_TMPL_WORKBOOK  TYPE OLE2_OBJECT,  " workbook 当前激活
+      O_TMPL_WORKSHEET TYPE OLE2_OBJECT,  " Worksheet object 当前激活
+      O_TMPL_CELL      TYPE OLE2_OBJECT, "当前选择cell
+      O_PGST           TYPE OLE2_OBJECT. "EXCEL打印页面设置
+
+*      a_range  TYPE ole2_object,
+*      t_range  TYPE ole2_object,
+*      protect_sheet TYPE ole2_object.
+
+DATA: O_TMPL_APPLICATION TYPE OLE2_OBJECT.
+
+DATA: G_DISPLAY          TYPE C.            " 下载模版后是否立即显示表格，如需要在下载前设置 X
+
+DATA: I_SHEETCOUNT       TYPE I .
+
+*---内表处理变量
+DATA I_LINE           TYPE I.            "表头文本行数
+DATA I_ROWS           TYPE I.            "保存行数
+DATA I_ROWS_T         TYPE I.            "保存文本行数
+DATA I_ROWS_Z         TYPE I.            "保存总行数
+DATA I_H              TYPE I.            "保存行数
+DATA I_SN             TYPE I.            "序号
+DATA I_PAGECOUNT      TYPE F.            "内表条目+文本内容能输出总页数
+DATA I_PERPAGE_ROWS   TYPE F.            "每页能输出内表行数
+DATA I_CURPAGE        TYPE I.            "当前页
+DATA I_TEM            TYPE I.            "最后一页空行数
+DATA I_START_ROW1     TYPE I.            "内表将输出开始行
+DATA I_END_ROW1       TYPE I.            "内表将输出结束行
+DATA I_START_ROW2     TYPE I.            "表头文本将输出开始行
+DATA I_END_ROW2       TYPE I.            "表头文本将输出结束行
+DATA I_CURROW         TYPE I.            "当前行
+DATA I_PAGECOUNT_T    TYPE I.            "内表条目能输出总页数
+DATA C_PAGEFOOT(12)   TYPE C.            "页码
+DATA C_CP(2)          TYPE C.            "页码
+DATA C_CC(2)          TYPE C.            "页码
+
+DATA C_DOCTITLE(50)   TYPE C.            "文档标题
+DATA C_NEWTMP(10)     TYPE C.            "sheet名称
+DATA C_HEADER(60)     TYPE C.            "询价单抬头
+DATA C_COMMENT(60)     TYPE C.            "询价单备注
+DATA ZMTRJE_ALL TYPE EKPO-NETWR.           "总金额
+DATA MENGE_ALL TYPE MSEG-MENGE.        "收货数量汇总
+
+DATA: I_FROM   TYPE I,            "拷贝初始行
+      I_TO     TYPE I,            "拷贝结束行
+      I_DEST   TYPE I,            "拷贝目的行
+      I_TOP    TYPE I,            "填充时抬头第一行
+      I_BOTTOM TYPE I.            "填充时页脚行
+
+*JAG加入列
+DATA COLUMNS TYPE OLE2_OBJECT.
+*  打印变量
+DATA C_PRINT(2)       TYPE C.
+
+
+*  是否要关闭
+DATA C_CLOSE_EXCEL(1) TYPE C.
+
+*  excel页面设置参数声明
+FIELD-SYMBOLS: <TY_EXCEL_PAGESETUP>,                  "电子表格pagesetup属性结构
+               <FN_EXCEL_PAGESETUP>.                  "字段
+
+DATA:ITB_EXCEL_PAGESETUP_FIELD TYPE LVC_T_FCAT,      " 存储转化为结构字段的pagesetup属性
+     WA_EXCEL_PAGESETUP_FIELD  TYPE LVC_S_FCAT.      " 工作区
+
+DATA STR_FILEXTNAME             TYPE STRING.          " 扩展名
+
+*  表属性
+TYPE-POOLS:ABAP.
+*  得到物理表、内表和结构等的字段信息，见子程序get_itab_field_info
+DATA ITAB_TABLE_FIELD_INFO TYPE ABAP_COMPDESCR OCCURS 0 WITH HEADER LINE
+      .
+DATA: BEGIN OF ITAB_FMAT_CONTENT OCCURS 0,"打印excel的内容的另一种表达方法
+        ROW     TYPE I,
+        COL     TYPE I,
+        CONTENT TYPE STRING,
+      END OF ITAB_FMAT_CONTENT.
+
+*&---------------------------------------------------------------------*
+*& Form FRM_DOWN_EXCEL
+*&---------------------------------------------------------------------*
+*& 弹出选择下载路径
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM FRM_DOWN_EXCEL USING P_TEMPNAME.
+  DATA: L_FILE TYPE RLGRAP-FILENAME. "默认文件名 XX.XLSX...
+  DATA: DATA_CONTAINER LIKE SOLI OCCURS 0 WITH HEADER LINE.
+  DATA: LENGTH TYPE I.
+  DATA: LIN TYPE I.
+  DATA: UNI_FILENAME TYPE STRING.
+  DATA: P_FILE  TYPE RLGRAP-FILENAME. "文件路径
+  SELECT SINGLE FILENAME FROM ZS1BCT_0001 INTO L_FILE WHERE SRTFD = P_TEMPNAME.
+  IF SY-SUBRC <> 0.
+    MESSAGE '没有此定制表对应的批导模板，请联系SAP管理员或通过事务代码ZS1BC0001上传模板!' TYPE 'I'.
+    STOP.
+  ENDIF.
+  CALL FUNCTION 'TB_LIMIT_WS_FILENAME_GET'
+    EXPORTING
+      DEF_FILENAME     = L_FILE
+*     DEF_PATH         = ' '
+*     MASK             = ''
+      MODE             = 'S'
+*     TITLE            = ' '
+    IMPORTING
+      FILENAME         = P_FILE
+*     PATH             =
+*     FILE             =
+    EXCEPTIONS
+      SELECTION_CANCEL = 1
+      SELECTION_ERROR  = 2
+      OTHERS           = 3.
+  IF SY-SUBRC <> 0.
+    CALL FUNCTION 'POPUP_TO_DISPLAY_TEXT'
+      EXPORTING
+        TITEL     = '错误' "'错误'
+        TEXTLINE1 = '选择文件错误！' "'选择文件错误！'
+      EXCEPTIONS
+        OTHERS    = 1.
+    STOP.
+  ENDIF.
+  CLEAR DATA_CONTAINER.
+  REFRESH DATA_CONTAINER.
+  IMPORT DATA_CONTAINER FROM DATABASE ZS1BCT_0001(CN) ID P_TEMPNAME.
+  DESCRIBE TABLE DATA_CONTAINER LINES LIN.
+  READ TABLE DATA_CONTAINER INDEX LIN.
+  LENGTH = DATA_CONTAINER-LINE.
+  UNI_FILENAME = P_FILE.
+  CALL FUNCTION 'GUI_DOWNLOAD'
+    EXPORTING
+      BIN_FILESIZE            = LENGTH
+      FILENAME                = UNI_FILENAME
+      FILETYPE                = 'BIN'
+    TABLES
+      DATA_TAB                = DATA_CONTAINER
+    EXCEPTIONS
+      FILE_WRITE_ERROR        = 1
+      NO_BATCH                = 2
+      GUI_REFUSE_FILETRANSFER = 3
+      INVALID_TYPE            = 4
+      NO_AUTHORITY            = 5
+      UNKNOWN_ERROR           = 6
+      HEADER_NOT_ALLOWED      = 7
+      SEPARATOR_NOT_ALLOWED   = 8
+      FILESIZE_NOT_ALLOWED    = 9
+      HEADER_TOO_LONG         = 10
+      DP_ERROR_CREATE         = 11
+      DP_ERROR_SEND           = 12
+      DP_ERROR_WRITE          = 13
+      UNKNOWN_DP_ERROR        = 14
+      ACCESS_DENIED           = 15
+      DP_OUT_OF_MEMORY        = 16
+      DISK_FULL               = 17
+      DP_TIMEOUT              = 18
+      FILE_NOT_FOUND          = 19
+      DATAPROVIDER_EXCEPTION  = 20
+      CONTROL_FLUSH_ERROR     = 21
+      OTHERS                  = 22.
+
+  IF SY-SUBRC NE 0.
+    CALL FUNCTION 'POPUP_TO_DISPLAY_TEXT'
+      EXPORTING
+        TITEL     = '下载文件'  "'下载文件'
+        TEXTLINE1 = '下载失败！' "'下载失败！'
+      EXCEPTIONS
+        OTHERS    = 1.
+  ELSE.
+    CALL FUNCTION 'POPUP_TO_DISPLAY_TEXT'
+      EXPORTING
+        TITEL     = '下载文件' "'下载文件'
+        TEXTLINE1 = '下载成功！' "'下载成功！'
+      EXCEPTIONS
+        OTHERS    = 1.
+  ENDIF.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  download_template
+*&---------------------------------------------------------------------*
+*       下载模版，下载到SAP缓存路径
+*----------------------------------------------------------------------*
+*      -->P_STR_TMPLNAME  text
+*----------------------------------------------------------------------*
+FORM DOWNLOAD_TEMPLATE USING P_STR_TMPLNAME.
+
+  DATA: L_C_EXT(10),
+        L_C_F(128),
+        L_C_F1(10).
+
+*  data str_filename type string.
+
+  DATA L_I_LIN          TYPE I.
+  DATA L_I_LENGTH       TYPE I.
+  DATA:DATA_CONTAINER LIKE SOLI OCCURS 0 WITH HEADER LINE.
+
+
+  DATA L_C_RETURN_FILE_PATH(200) TYPE C.
+
+* 报表模版ID 保存在全局变量中
+  STR_TMPLNAME = P_STR_TMPLNAME.
+
+* 读取报表数据
+  CLEAR DATA_CONTAINER.
+  REFRESH DATA_CONTAINER.
+
+* 为簇数据库表生成目录表，并从簇数据库中读取数据对象
+  IMPORT DATA_CONTAINER FROM DATABASE ZS1BCT_0001(CN) ID P_STR_TMPLNAME.
+
+* 得到记录数
+  DESCRIBE TABLE DATA_CONTAINER LINES L_I_LIN.
+
+* 文件名分割
+  SPLIT ZS1BCT_0001-FILENAME AT '.' INTO L_C_F L_C_F1.
+  L_C_EXT = L_C_F1.
+
+* 扩张名大写
+  TRANSLATE L_C_EXT TO UPPER CASE.
+  STR_FILEXTNAME = L_C_EXT.
+
+
+  IF L_I_LIN = 0.
+    CALL FUNCTION 'POPUP_TO_DISPLAY_TEXT'
+      EXPORTING
+        TITEL     = '下载文件'
+        TEXTLINE1 = '数据库错误!没有模板，请重新上载模板！'
+      EXCEPTIONS
+        OTHERS    = 1.
+*    EXIT.
+    STOP.
+  ENDIF.
+
+
+* 数据存在，下载模版
+  READ TABLE DATA_CONTAINER INDEX L_I_LIN.
+
+  L_I_LENGTH = DATA_CONTAINER-LINE.
+
+* 模板本地保存地址
+  CALL FUNCTION 'GUI_GET_DESKTOP_INFO'
+    EXPORTING
+      TYPE   = 4
+    CHANGING
+      RETURN = L_C_RETURN_FILE_PATH.
+
+  CONCATENATE L_C_RETURN_FILE_PATH '\' L_C_F SY-DATUM SY-UZEIT '.' L_C_F1 INTO STR_FILENAME. " 在文件名中加入时间 - RCSFHF on 2013.11.08
+
+
+  CALL FUNCTION 'GUI_DOWNLOAD'
+    EXPORTING
+      BIN_FILESIZE            = L_I_LENGTH
+      FILENAME                = STR_FILENAME
+      FILETYPE                = 'BIN'
+    IMPORTING
+      FILELENGTH              = L_I_LENGTH
+    TABLES
+      DATA_TAB                = DATA_CONTAINER
+*     FIELDNAMES              =
+    EXCEPTIONS
+      FILE_WRITE_ERROR        = 1
+      NO_BATCH                = 2
+      GUI_REFUSE_FILETRANSFER = 3
+      INVALID_TYPE            = 4
+      NO_AUTHORITY            = 5
+      UNKNOWN_ERROR           = 6
+      HEADER_NOT_ALLOWED      = 7
+      SEPARATOR_NOT_ALLOWED   = 8
+      FILESIZE_NOT_ALLOWED    = 9
+      HEADER_TOO_LONG         = 10
+      DP_ERROR_CREATE         = 11
+      DP_ERROR_SEND           = 12
+      DP_ERROR_WRITE          = 13
+      UNKNOWN_DP_ERROR        = 14
+      ACCESS_DENIED           = 15
+      DP_OUT_OF_MEMORY        = 16
+      DISK_FULL               = 17
+      DP_TIMEOUT              = 18
+      FILE_NOT_FOUND          = 19
+      DATAPROVIDER_EXCEPTION  = 20
+      CONTROL_FLUSH_ERROR     = 21
+      OTHERS                  = 22.
+
+  IF SY-SUBRC NE 0.
+    CALL FUNCTION 'POPUP_TO_DISPLAY_TEXT'
+      EXPORTING
+        TITEL     = '下载文件'
+        TEXTLINE1 = '下载失败！'
+      EXCEPTIONS
+        OTHERS    = 1.
+    EXIT.
+  ENDIF.
+
+*  case l_c_ext.
+*    when 'XLS'.
+*      perform startexcel_new  using str_filename p_str_tmplname.
+*      perform close_excel_tmp using l_filename.
+  "关闭模板,新建电子表格
+*    when 'DOC'.
+*    when others.
+*  endcase.
+ENDFORM.                    "download_template
+
+
+*&---------------------------------------------------------------------*
+*&      Form  START_EXCEL_HIDE
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_1449   text
+*----------------------------------------------------------------------*
+FORM START_EXCEL USING P_C_SHEET_NAME VISIBLE.
+  DATA L_STR_SHEET_NAME TYPE STRING.
+* 产生一个提示
+  CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+    EXPORTING
+      PERCENTAGE = 1
+      TEXT       = TEXT-I01.
+
+* 到底创建哪种对象合适
+  TRY.
+      CREATE OBJECT O_EXCEL 'EXCEL.APPLICATION' .
+    CATCH CX_SY_CREATE_OBJECT_ERROR.
+  ENDTRY.
+  IF SY-SUBRC NE 0.
+    TRY.
+        CREATE OBJECT O_EXCEL 'ET.Application'.
+      CATCH CX_SY_CREATE_OBJECT_ERROR.
+    ENDTRY.
+    IF SY-SUBRC NE 0.
+      CALL FUNCTION 'POPUP_TO_DISPLAY_TEXT'
+        EXPORTING
+          TITEL     = TEXT-H01
+          TEXTLINE1 = TEXT-E01
+        EXCEPTIONS
+          OTHERS    = 1.
+      LEAVE SCREEN.
+    ENDIF.
+  ENDIF.
+
+* 如果sheet名没有指定 缺省与报表模版ID相同
+  IF P_C_SHEET_NAME IS INITIAL.
+    L_STR_SHEET_NAME = STR_TMPLNAME.
+  ELSE.
+    L_STR_SHEET_NAME = P_C_SHEET_NAME.
+  ENDIF.
+
+  SET PROPERTY OF O_EXCEL  'Visible' = VISIBLE. "0隐藏1显示
+
+* 创建workbook对象
+  CALL METHOD OF
+    O_EXCEL
+      'Workbooks' = O_TMPL_WORKBOOKS.
+
+* 打开下载的模板的workbook
+  CALL METHOD OF
+  O_TMPL_WORKBOOKS
+  'Open'           = O_TMPL_WORKBOOK
+  EXPORTING
+    #1               = STR_FILENAME.
+
+* 指定要被操作的sheet
+  CALL METHOD OF
+  O_TMPL_WORKBOOK
+  'Worksheets'    = O_TMPL_WORKSHEET
+  EXPORTING
+    #1              = L_STR_SHEET_NAME.
+
+* 激活表格
+  CALL METHOD OF
+    O_TMPL_WORKSHEET
+    'activate'.
+ENDFORM.
+
+*---------------------------------------------------------------------*
+*       FORM fill_excel_cell                                           *
+*---------------------------------------------------------------------*
+*      在指定单元格内填充值，并且自动画单元格边框线                   *
+*---------------------------------------------------------------------*
+*  -->  L_ROW                                                         *
+*  -->  L_COLUMN                                                      *
+*  -->  L_VALUE                                                       *
+*---------------------------------------------------------------------*
+FORM FILL_EXCEL_CELL
+USING L_ROW TYPE I     " cell row serial
+      L_COLUMN TYPE I  " cell column serial
+      L_VALUE.   " cell value
+
+*  CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+*    EXPORTING
+*      percentage = 50
+*      text       = text-i03.
+
+*    set cell properties
+  CALL METHOD OF
+  O_EXCEL
+  'Cells' = O_SHEET_CELL
+  EXPORTING
+    #1      = L_ROW
+    #2      = L_COLUMN.
+  SET PROPERTY OF O_SHEET_CELL 'Value' = L_VALUE.
+
+  FREE OBJECT O_SHEET_CELL.
+  CLEAR O_SHEET_CELL.
+ENDFORM.                     " fill_EXCEL_CELL
+
+*---------------------------------------------------------------------*
+*       像指定行插入行                                           *
+*---------------------------------------------------------------------*
+FORM EXCEL_ROW_INSERT  USING    LC_ROW
+                                LC_COUNT.
+  DO LC_COUNT TIMES.
+    CALL METHOD OF
+        O_EXCEL
+        'ROWS'  = O_SHEET_ROW
+      EXPORTING
+        #1      = LC_ROW.
+    CALL METHOD OF
+      O_SHEET_ROW
+      'INSERT'
+      NO
+      FLUSH.
+  ENDDO.
+  FREE OBJECT O_SHEET_ROW.
+  CLEAR O_SHEET_ROW.
+ENDFORM.
+
+*---------------------------------------------------------------------*
+*       自动调整行高                                                  *
+*---------------------------------------------------------------------*
+FORM EXCEL_ROW_AUTOFIT  USING  LC_ROW_START
+                                LC_ROW_END.
+  DATA: LC_COUNT TYPE I,
+        LC_ROW   TYPE I.
+  LC_COUNT = LC_ROW_END - LC_ROW_START + 1.
+  LC_ROW = LC_ROW_START.
+  DO LC_COUNT TIMES.
+    CALL METHOD OF
+        O_EXCEL
+        'ROWS'  = O_SHEET_ROW
+      EXPORTING
+        #1      = LC_ROW.
+    CALL METHOD OF O_SHEET_ROW 'AUTOFIT'.
+    LC_ROW = LC_ROW + 1.
+  ENDDO.
+  FREE OBJECT O_SHEET_ROW.
+  CLEAR O_SHEET_ROW.
+ENDFORM.
+
+*---------------------------------------------------------------------*
+*       自动调整列宽                                                  *
+*---------------------------------------------------------------------*
+FORM EXCEL_COL_AUTOFIT  USING  LC_COL_START
+                                LC_COL_END.
+  DATA: LC_COUNT TYPE I,
+        LC_COL   TYPE I.
+  LC_COUNT = LC_COL_END - LC_COL_START + 1.
+  LC_COL = LC_COL_START.
+  DO LC_COUNT TIMES.
+    CALL METHOD OF
+        O_EXCEL
+        'COLUMNS'  = O_SHEET_COL
+      EXPORTING
+        #1      = LC_COL.
+    CALL METHOD OF O_SHEET_COL 'AUTOFIT'.
+    LC_COL = LC_COL + 1.
+  ENDDO.
+  FREE OBJECT O_SHEET_COL.
+  CLEAR O_SHEET_COL.
+ENDFORM.
+
+FORM SET_PRINT_PAGE USING ROTATION ZOOM GRIDLINES TOPMARGIN BOTTOMMARGIN LEFTMARGIN RIGHTMARGIN.
+**  具体的参数可用excel录制宏，在VB编辑器汇总查看具体的参数（参数需在表OLELOAD中，不过没有描述信息）
+  ""PERFORM SET_PAGE USING '2' '2' '1' '5' '5' '5' '5'.
+  CALL METHOD OF  O_TMPL_WORKSHEET 'Activate'.
+  GET PROPERTY OF O_TMPL_WORKSHEET 'PageSetup' = O_PGST.
+
+* Lanscape 横向 = 2    or     Portrait 纵向 =  1
+  SET PROPERTY OF O_PGST 'Orientation' = ROTATION.
+
+  "打印纸张设置
+  SET PROPERTY OF O_PGST 'PaperSize' = 'xlPaperA4'.
+* Set the margins 边距 单位mm
+  SET PROPERTY OF O_PGST 'TopMargin' = TOPMARGIN. "'2.00'.
+  SET PROPERTY OF O_PGST 'BottomMargin'= BOTTOMMARGIN. "'2.00'.
+  SET PROPERTY OF O_PGST 'LeftMargin' = LEFTMARGIN."'5.00'.
+  SET PROPERTY OF O_PGST 'RightMargin' = RIGHTMARGIN."'2.00'.
+
+** 缩放 此缩放功能未实现，可在excel模板中设置好，这样打印的时候就是按照模板设置的打印的
+  CASE ZOOM.
+    WHEN '0'."无缩放
+      SET PROPERTY OF O_PGST 'Zoom' = '100'.
+    WHEN '1'."工作表调整为一页
+      SET PROPERTY OF O_PGST 'Zoom' = 'False'.
+      SET PROPERTY OF O_PGST 'FitToPagesWide' = '1'.
+      SET PROPERTY OF O_PGST 'FitToPagesTall' = '1'.
+    WHEN '2'."所有列调整为一页
+      SET PROPERTY OF O_PGST 'Zoom' = 'False'.
+      SET PROPERTY OF O_PGST 'FitToPagesWide' = '1'.
+      SET PROPERTY OF O_PGST 'FitToPagesTall' = '0'.
+    WHEN '3'."所有行调整为一页
+      SET PROPERTY OF O_PGST 'Zoom' = 'False'.
+      SET PROPERTY OF O_PGST 'FitToPagesWide' = '0'.
+      SET PROPERTY OF O_PGST 'FitToPagesTall' = '1'.
+  ENDCASE.
+
+* Print grid lines.... 网格线 checked = 1
+  SET PROPERTY OF O_PGST 'PrintGridlines' = GRIDLINES .
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  print_excel
+*&---------------------------------------------------------------------*
+*       EXCEL 打印
+*----------------------------------------------------------------------*
+FORM PRINT_EXCEL.
+
+  GET PROPERTY OF O_EXCEL 'ACTIVEWORKBOOK' = O_TMPL_WORKBOOK.
+  CALL METHOD OF O_TMPL_WORKBOOK 'PRINTOUT'.
+
+ENDFORM.                    "print_excel
+
+FORM PASTE_CLIPBOARD_TO_EXCEL TABLES PT_CLIPBOARD STRUCTURE ZST_CLIPBOARD
+                              USING P_ROW TYPE I
+                                    P_COL TYPE I.
+**********************************************************************
+**  参考赋值程序
+*  DATA: LV_TYPE      TYPE C,
+*        LV_FIELDS    TYPE I, "内表字段数量
+*        PT_CLIPBOARD TYPE TABLE OF ZST_CLIPBOARD WITH HEADER LINE. "剪贴板
+*  FIELD-SYMBOLS <LV_FIELD>.
+***    剪贴板
+*  CLEAR: PT_CLIPBOARD[].
+*  DESCRIBE FIELD LT_ITAB TYPE LV_TYPE COMPONENTS LV_FIELDS.
+*  LOOP AT LT_ITAB.
+*    CLEAR PT_CLIPBOARD.
+*    DO LV_FIELDS TIMES.
+*      ASSIGN COMPONENT SY-INDEX OF STRUCTURE LT_ITAB TO <LV_FIELD>.
+*      PT_CLIPBOARD-VALUE = PT_CLIPBOARD-VALUE && <LV_FIELD> && CL_ABAP_CHAR_UTILITIES=>HORIZONTAL_TAB.
+**          CONCATENATE PT_CLIPBOARD-VALUE <LV_FIELD> CL_ABAP_CHAR_UTILITIES=>HORIZONTAL_TAB INTO PT_CLIPBOARD-VALUE."不支持非C类型的
+*    ENDDO.
+*    APPEND PT_CLIPBOARD.
+*  ENDLOOP.
+**********************************************************************
+  DATA: LV_RC        TYPE I.
+  CL_GUI_FRONTEND_SERVICES=>CLIPBOARD_EXPORT(
+    EXPORTING
+      NO_AUTH_CHECK        = 'X'    " Switch off Check for Access Rights
+    IMPORTING
+      DATA                 = PT_CLIPBOARD[]    " Data
+    CHANGING
+      RC                   = LV_RC    " Return Code
+    EXCEPTIONS
+      CNTL_ERROR           = 1
+      ERROR_NO_GUI         = 2
+      NOT_SUPPORTED_BY_GUI = 3
+      NO_AUTHORITY         = 4
+      OTHERS               = 5  ).
+* Select the cell A1
+  CALL METHOD OF O_TMPL_WORKSHEET 'Cells' = O_TMPL_CELL
+    EXPORTING
+    #1 = P_ROW
+    #2 = P_COL.
+
+* Paste clipboard from cell A1
+  CALL METHOD OF O_TMPL_CELL 'SELECT'.
+  CALL METHOD OF O_TMPL_WORKSHEET 'PASTE'.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Form  excel_close
+*&---------------------------------------------------------------------*
+*       EXCEL 关闭
+*----------------------------------------------------------------------*
+FORM CLOSE_EXCEL.
+
+* Close the file
+  CALL METHOD OF O_TMPL_WORKBOOK 'Save'.
+* Close the file
+  CALL METHOD OF O_TMPL_WORKBOOK 'Close'.
+* Quit the file
+  CALL METHOD OF  O_EXCEL  'QUIT'.
+  FREE OBJECT: O_TMPL_WORKSHEET,O_PGST,O_TMPL_WORKBOOK,O_TMPL_WORKBOOKS,O_EXCEL.
+  CLEAR: O_TMPL_WORKSHEET,O_PGST,O_TMPL_WORKBOOK,O_TMPL_WORKBOOKS,O_EXCEL.
+ENDFORM.                    "excel_close
+
+*---------------------------------------------------------------------*
+*       FORM endexcel                                                 *
+*---------------------------------------------------------------------*
+*       ........                                                      *
+*---------------------------------------------------------------------*
+FORM ENDEXCEL.
+  FREE OBJECT O_TMPL_WORKSHEET.
+  FREE OBJECT O_TMPL_WORKBOOK.
+  FREE OBJECT O_TMPL_WORKBOOKS.
+  FREE OBJECT O_EXCEL.
+  FREE: O_TMPL_WORKSHEET,O_TMPL_WORKBOOK,O_TMPL_WORKBOOKS,O_EXCEL.
+ENDFORM.                    "endexcel
+
+*&---------------------------------------------------------------------*
+*&      Form  get_excel_pagesetup
+*&---------------------------------------------------------------------*
+*       获取页面配置
+*----------------------------------------------------------------------*
+*      -->L_OBJ_PAGESETUP     text
+*      -->TY_EXCEL_PAGESETUP  text
+*----------------------------------------------------------------------*
+FORM GET_EXCEL_PAGESETUP USING  L_OBJ_PAGESETUP TYPE OLE2_OBJECT.
+
+  DATA L_PI_BASE TYPE F VALUE '28.57142857'.
+  DATA L_PI_COUNT TYPE F.
+  DATA L_C_FIELDNAME LIKE TYPEINFO-VERB.
+
+  PERFORM CREATE_EXCEL_PAGESETUP_STRUC.
+  LOOP AT ITB_EXCEL_PAGESETUP_FIELD INTO WA_EXCEL_PAGESETUP_FIELD.
+    TRANSLATE WA_EXCEL_PAGESETUP_FIELD-FIELDNAME TO UPPER CASE.
+    ASSIGN COMPONENT WA_EXCEL_PAGESETUP_FIELD-FIELDNAME OF STRUCTURE <TY_EXCEL_PAGESETUP> TO <FN_EXCEL_PAGESETUP>.
+
+
+
+    IF <FN_EXCEL_PAGESETUP> IS INITIAL.
+      L_C_FIELDNAME = WA_EXCEL_PAGESETUP_FIELD-FIELDNAME.
+      GET PROPERTY OF L_OBJ_PAGESETUP L_C_FIELDNAME = <FN_EXCEL_PAGESETUP>.
+      WA_EXCEL_PAGESETUP_FIELD-MARK = SY-SUBRC.
+
+*  特殊处理开始
+      CASE WA_EXCEL_PAGESETUP_FIELD-FIELDNAME.
+        WHEN 'TOPMARGIN' OR 'BOTTOMMARGIN' OR 'LEFTMARGIN' OR 'RIGHTMARGIN' OR 'HEADERMARGIN' OR 'FOOTERMARGIN'.
+          <FN_EXCEL_PAGESETUP> = <FN_EXCEL_PAGESETUP> / L_PI_BASE.
+      ENDCASE.
+*  特殊处理结束
+
+    ELSE.
+      WA_EXCEL_PAGESETUP_FIELD-MARK = '0'.
+    ENDIF.
+    MODIFY ITB_EXCEL_PAGESETUP_FIELD FROM WA_EXCEL_PAGESETUP_FIELD.
+  ENDLOOP.
+
+ENDFORM.                    "get_excel_pagesetup
+
+*&---------------------------------------------------------------------*
+*&      Form  set_excel_pagesetup
+*&---------------------------------------------------------------------*
+*       设置excel页面设置
+*----------------------------------------------------------------------*
+*      -->TY_PROPERTY  text
+*----------------------------------------------------------------------*
+FORM SET_EXCEL_PAGESETUP USING L_OBJ_PAGESETUP TYPE OLE2_OBJECT.
+
+  DATA L_PI_BASE TYPE F VALUE '28.57142857'.
+  DATA L_PI_COUNT TYPE F.
+  DATA L_C_FIELDNAME LIKE TYPEINFO-VERB.
+
+  LOOP AT ITB_EXCEL_PAGESETUP_FIELD INTO WA_EXCEL_PAGESETUP_FIELD.
+    TRANSLATE WA_EXCEL_PAGESETUP_FIELD-FIELDNAME TO UPPER CASE.
+    ASSIGN COMPONENT WA_EXCEL_PAGESETUP_FIELD-FIELDNAME OF STRUCTURE <TY_EXCEL_PAGESETUP> TO <FN_EXCEL_PAGESETUP>.
+
+    L_C_FIELDNAME = WA_EXCEL_PAGESETUP_FIELD-FIELDNAME.
+    IF WA_EXCEL_PAGESETUP_FIELD-FIELDNAME EQ 'ZOOM' AND <FN_EXCEL_PAGESETUP> BETWEEN 10 AND 400.
+      SET PROPERTY OF L_OBJ_PAGESETUP L_C_FIELDNAME = <FN_EXCEL_PAGESETUP>.
+    ELSEIF WA_EXCEL_PAGESETUP_FIELD-FIELDNAME EQ 'ZOOM'.
+      SET PROPERTY OF L_OBJ_PAGESETUP L_C_FIELDNAME = <FN_EXCEL_PAGESETUP>."始终无法设置为False，因此下面两个参数还无法起作用
+    ELSEIF WA_EXCEL_PAGESETUP_FIELD-FIELDNAME EQ 'TOPMARGIN'
+      OR WA_EXCEL_PAGESETUP_FIELD-FIELDNAME EQ 'BOTTOMMARGIN'
+      OR WA_EXCEL_PAGESETUP_FIELD-FIELDNAME EQ 'LEFTMARGIN'
+      OR WA_EXCEL_PAGESETUP_FIELD-FIELDNAME EQ 'RIGHTMARGIN'
+      OR WA_EXCEL_PAGESETUP_FIELD-FIELDNAME EQ 'HEADERMARGIN'
+      OR WA_EXCEL_PAGESETUP_FIELD-FIELDNAME EQ 'FOOTERMARGIN'.
+      L_PI_COUNT = <FN_EXCEL_PAGESETUP> * L_PI_BASE.
+      SET PROPERTY OF L_OBJ_PAGESETUP L_C_FIELDNAME = L_PI_COUNT.
+    ELSE.
+      SET PROPERTY OF L_OBJ_PAGESETUP L_C_FIELDNAME = <FN_EXCEL_PAGESETUP>.
+    ENDIF.
+  ENDLOOP.
+
+ENDFORM.                    "set_excel_pagesetup
+
+
+
+*&---------------------------------------------------------------------*
+*&      Form  create_excel_pagesetup_struc
+*&---------------------------------------------------------------------*
+*       创建pagesetup属性对应的结构
+*           fieldname：输入pagesetup的属性名（字段）
+*           inttype：    类型
+*           intlen：     长度（可选项，根据实际需要）
+*           mask：       执行状态，0表示OK（程序赋值，调试使用）
+*
+*----------------------------------------------------------------------*
+FORM CREATE_EXCEL_PAGESETUP_STRUC.
+
+*  如果要手动设置某个参数，请在模板下载前增加语句：
+*      以excel纸张大小PAPERSIZE为例
+*      ASSIGN COMPONENT 'PAPERSIZE' OF STRUCTURE <ty_excel_pagesetup> TO <fn_excel_pagesetup>. "字段大写
+*      <fn_excel_pagesetup> = 12.
+
+  FIELD-SYMBOLS:<TY_EXCEL_PAGESETUP_DYN> TYPE STANDARD TABLE."动态结构
+
+  DATA:L_TY_NEW_LINE          TYPE REF TO DATA, "声明变量为data对象
+       TY_EXCEL_PAGESETUP_DYN TYPE REF TO DATA. "声明变量为data对象
+
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'ORIENTATION'.
+  WA_EXCEL_PAGESETUP_FIELD-INTTYPE   = 'I'.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'BLACKANDWHITE'.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'FITTOPAGESWIDE'.
+  WA_EXCEL_PAGESETUP_FIELD-INTTYPE   = 'I'.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'FITTOPAGESTALL'.
+  WA_EXCEL_PAGESETUP_FIELD-INTTYPE   = 'I'.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'ZOOM'.
+*  wa_excel_pagesetup_field-inttype   = 'REF DATA'.
+*  wa_excel_pagesetup_field-intlen = 1.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+
+*  PAPERSIZE可以通过excel->VBA->视图->对象浏览器
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'PAPERSIZE'.
+  WA_EXCEL_PAGESETUP_FIELD-INTTYPE   = 'I'.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'LEFTMARGIN'.
+  WA_EXCEL_PAGESETUP_FIELD-INTTYPE   = 'F'.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'RIGHTMARGIN'.
+  WA_EXCEL_PAGESETUP_FIELD-INTTYPE   = 'F'.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'TOPMARGIN'.
+  WA_EXCEL_PAGESETUP_FIELD-INTTYPE   = 'F'.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'BOTTOMMARGIN'.
+  WA_EXCEL_PAGESETUP_FIELD-INTTYPE   = 'F'.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'HEADERMARGIN'.
+  WA_EXCEL_PAGESETUP_FIELD-INTTYPE   = 'F'.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'FOOTERMARGIN'.
+  WA_EXCEL_PAGESETUP_FIELD-INTTYPE   = 'F'.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+*  下面两个参数是bool量，0表示不作用，1表示作用
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'CENTERHORIZONTALLY'.
+  WA_EXCEL_PAGESETUP_FIELD-INTTYPE   = 'C'.
+  WA_EXCEL_PAGESETUP_FIELD-INTLEN = 1.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+  WA_EXCEL_PAGESETUP_FIELD-FIELDNAME = 'CENTERVERTICALLY'.
+  WA_EXCEL_PAGESETUP_FIELD-INTTYPE   = 'C'.
+  WA_EXCEL_PAGESETUP_FIELD-INTLEN = 1.
+  APPEND WA_EXCEL_PAGESETUP_FIELD TO ITB_EXCEL_PAGESETUP_FIELD.
+
+
+  CALL METHOD CL_ALV_TABLE_CREATE=>CREATE_DYNAMIC_TABLE
+    EXPORTING
+      IT_FIELDCATALOG = ITB_EXCEL_PAGESETUP_FIELD
+    IMPORTING
+      EP_TABLE        = TY_EXCEL_PAGESETUP_DYN.
+
+  ASSIGN TY_EXCEL_PAGESETUP_DYN->* TO <TY_EXCEL_PAGESETUP_DYN>."用表类型指针<dyn_table> 指向 数据对象的内容.
+
+  CREATE DATA L_TY_NEW_LINE LIKE LINE OF <TY_EXCEL_PAGESETUP_DYN>."建立一个与动态内表结构相同的数据对象，且数据对象为是一个结构
+  ASSIGN L_TY_NEW_LINE->* TO <TY_EXCEL_PAGESETUP>.
+
+ENDFORM.                    "create_excel_pagesetup_struc
