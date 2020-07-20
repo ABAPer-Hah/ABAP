@@ -1,0 +1,50 @@
+*&---------------------------------------------------------------------*
+*& Include ZS1BCI0002
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*& Form FRM_SET_DDIC_FIELDCAT
+*&---------------------------------------------------------------------*
+*& 根据数据库表，自动设置OOALV表头
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM FRM_SET_DDIC_FIELDCAT TABLES IT_FIELDCAT STRUCTURE LVC_S_FCAT USING P_TNAME TYPE DD02L-TABNAME.
+  DATA: LT_FIELDCAT TYPE SLIS_T_FIELDCAT_ALV WITH HEADER LINE,
+        WA_FIELDCAT TYPE LVC_S_FCAT.
+  CLEAR: IT_FIELDCAT[].
+
+  CALL FUNCTION 'REUSE_ALV_FIELDCATALOG_MERGE'
+    EXPORTING
+      I_PROGRAM_NAME         = SY-REPID
+*     I_INTERNAL_TABNAME     =
+      I_STRUCTURE_NAME       = P_TNAME
+*     I_CLIENT_NEVER_DISPLAY = 'X'
+      I_INCLNAME             = SY-REPID
+*     I_BYPASSING_BUFFER     =
+*     I_BUFFER_ACTIVE        =
+    CHANGING
+      CT_FIELDCAT            = LT_FIELDCAT[]
+    EXCEPTIONS
+      INCONSISTENT_INTERFACE = 1
+      PROGRAM_ERROR          = 2
+      OTHERS                 = 3.
+  LOOP AT LT_FIELDCAT.
+    CLEAR WA_FIELDCAT.
+    WA_FIELDCAT-FIELDNAME = LT_FIELDCAT-FIELDNAME.
+    WA_FIELDCAT-KEY = LT_FIELDCAT-KEY.
+    WA_FIELDCAT-COLTEXT = LT_FIELDCAT-SELTEXT_S.
+    WA_FIELDCAT-DD_OUTLEN = LT_FIELDCAT-DDIC_OUTPUTLEN.
+    WA_FIELDCAT-REF_FIELD = LT_FIELDCAT-FIELDNAME.
+    WA_FIELDCAT-REF_TABLE = P_TNAME.
+    APPEND WA_FIELDCAT TO IT_FIELDCAT.
+  ENDLOOP.
+  DELETE IT_FIELDCAT WHERE FIELDNAME = 'MANDT'.
+
+*  CLEAR WA_FIELDCAT.
+*  WA_FIELDCAT-FIELDNAME = 'ERO_MES'.
+*  WA_FIELDCAT-COLTEXT = '失败原因'.
+**  APPEND WA_FIELDCAT TO IT_FIELDCAT.
+*  INSERT WA_FIELDCAT INTO IT_FIELDCAT INDEX 1.
+ENDFORM.
