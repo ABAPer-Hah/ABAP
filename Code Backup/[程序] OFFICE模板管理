@@ -1,0 +1,533 @@
+************************************************************************
+*  程序名  ZS1BCR0001
+*  程序名称：Office模版管理
+*-------------------------------------------------
+*  创建日期       程序员    SAP版本    程序类型
+*  20181205 胡浩
+*-------------------------------------------------
+*  描述：
+*   Office模版管理
+*=============================================
+*  修改日期   版本    修改人      修改描述
+*
+************************************************************************
+REPORT  ZS1BCR0001 MESSAGE-ID ZBC.
+
+*----------------------------------------------------------------------*
+*                             GLOBLE-DEFINATION                        *
+*----------------------------------------------------------------------*
+
+TABLES: ZS1BCT_0001.
+
+* AVL控制需要的结构
+TYPE-POOLS:SLIS.
+CONSTANTS :CON_CHARX    VALUE 'X' .
+DATA:TY_FIELDCAT       TYPE SLIS_T_FIELDCAT_ALV,
+     C_ALV_PROGRAM     LIKE SY-REPID,
+     TY_ALV_EVENTS     TYPE SLIS_T_EVENT,
+     TY_ALV_EVENT_EXIT TYPE SLIS_T_EVENT_EXIT,
+     TY_ALV_LAYOUT     TYPE SLIS_LAYOUT_ALV,
+     N_COLPOS(2)       TYPE N,
+     TY_ALV_PRINT      TYPE SLIS_PRINT_ALV.
+
+* 结果表
+DATA ITB_ZS1BCT_0001 TYPE STANDARD TABLE OF ZS1BCT_0001 INITIAL SIZE 0 WITH HEADER LINE.
+
+*----------------------------------------------------------------------*
+*                             SELECTION-SCREEN                         *
+*----------------------------------------------------------------------*
+
+*----------------------------------------------------------------------*
+*                             INITIALIZATION                           *
+*----------------------------------------------------------------------*
+
+*----------------------------------------------------------------------*
+*                            AT SELECTION-SCREEN                       *
+*----------------------------------------------------------------------*
+
+*----------------------------------------------------------------------*
+*                            START-OF-SELECTION                        *
+*----------------------------------------------------------------------*
+START-OF-SELECTION.
+
+* 权限检查
+
+*  AUTHORITY-CHECK OBJECT 'S_MI_CCMS' ID 'ACTVT' FIELD '03'.
+*  IF sy-subrc NE 0.
+*    EXIT.
+*  ENDIF.
+
+* 读取数据到内表中
+  PERFORM GET_DATA.
+
+*----------------------------------------------------------------------*
+*                             END-OF-SELECTION                         *
+*----------------------------------------------------------------------*
+END-OF-SELECTION.
+
+
+* 在ALV控制中显示内表数据
+  N_COLPOS = '2'.
+
+* ALV表头字段
+  PERFORM SET_FIELDCAT USING TY_FIELDCAT.
+
+* 布局设置
+* ty_alv_layout-edit                = con_charx.
+* ty_alv_layout-edit_mode           = 'A'.
+
+  TY_ALV_LAYOUT-GET_SELINFOS        = CON_CHARX.
+*自动设置列宽
+  TY_ALV_LAYOUT-COLWIDTH_OPTIMIZE   = CON_CHARX. " space .
+  TY_ALV_LAYOUT-DETAIL_POPUP        = CON_CHARX.
+*  ty_alv_layout-box_tabname        = ''. "pi_box_tabname.
+*  ty_alv_layout-box_fieldname      = 'MARK'. "pi_box_fieldname.
+  TY_ALV_LAYOUT-NO_KEYFIX           = CON_CHARX.
+  TY_ALV_LAYOUT-KEY_HOTSPOT         = CON_CHARX.
+  TY_ALV_LAYOUT-GROUP_CHANGE_EDIT   = CON_CHARX.
+  TY_ALV_LAYOUT-TOTALS_BEFORE_ITEMS = CON_CHARX.
+  TY_ALV_LAYOUT-REPREP              = CON_CHARX.
+  TY_ALV_PRINT-NO_COVERPAGE         = 'X'.
+  TY_ALV_PRINT-NO_PRINT_LISTINFOS   = 'X'.
+  TY_ALV_PRINT-NO_CHANGE_PRINT_PARAMS = SPACE.
+  TY_ALV_PRINT-NO_PRINT_LISTINFOS     = 'X'.
+  TY_ALV_PRINT-NO_PRINT_SELINFOS      = 'X'.
+  TY_ALV_PRINT-NO_PRINT_HIERSEQ_ITEM  = 'X'.
+
+  PERFORM SET_LAYOUT USING TY_ALV_LAYOUT.
+
+* 事件设置
+  PERFORM REUSE_ALV_EVENTS TABLES TY_ALV_EVENTS
+  USING  C_ALV_PROGRAM.
+
+* 事件退出
+  PERFORM REUSE_EVENTS_EXIT TABLES TY_ALV_EVENT_EXIT.
+
+* ALV显示
+  PERFORM DISPLAY_ALV.
+
+
+*----------------------------------------------------------------------*
+*                            SUBROUTINES(子程序FORM)                  *
+*----------------------------------------------------------------------*
+
+
+*&---------------------------------------------------------------------*
+*&      Form  display_alv
+*&---------------------------------------------------------------------*
+*       显示alv表
+*----------------------------------------------------------------------*
+*
+*
+*----------------------------------------------------------------------*
+FORM DISPLAY_ALV.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+    EXPORTING
+      I_BYPASSING_BUFFER          = 'X'
+      I_BUFFER_ACTIVE             = 'X'
+*             TOP_OF_PAGE事件处理 可以写页头
+      I_CALLBACK_TOP_OF_PAGE      = 'COMMENT_BUILD'
+      I_CALLBACK_HTML_TOP_OF_PAGE = 'HTML_TOP_OF_PAGE'
+*             自定义状态
+      I_CALLBACK_PF_STATUS_SET    = 'SET_STATUS'
+*             自定义程序处理函数
+      I_CALLBACK_USER_COMMAND     = 'USER_COMMAND'
+*             指明处理函数所在的Form
+      I_CALLBACK_PROGRAM          = C_ALV_PROGRAM
+*     I_STRUCTURE_NAME            = '有余数的订单'
+*             设置显示布局
+      IS_LAYOUT                   = TY_ALV_LAYOUT
+*             设置列格式
+      IT_FIELDCAT                 = TY_FIELDCAT[]
+*             设置非激活的功能码
+*     it_excluding                = gs_sd_alv-excluding
+*     it_special_groups           = gs_sd_alv-special_groups
+*             设置排序字段
+*     IT_SORT                     = GS_SD_ALV-SORT
+*             设置过滤字段
+*     IT_FILTER                   = GS_SD_ALV-FILTER
+*     is_sel_hide                 = gs_sd_alv-sel_hide
+*             允许激活VARIANT功能
+      I_DEFAULT                   = 'X'
+*     i_save                      = gs_sd_alv-save
+*             设置变式
+*     is_variant                  = gs_sd_alv-variant
+*             设置事件处理函数
+      IT_EVENTS                   = TY_ALV_EVENTS
+      IT_EVENT_EXIT               = TY_ALV_EVENT_EXIT
+*             设置打印机参数
+      IS_PRINT                    = TY_ALV_PRINT
+    TABLES
+      T_OUTTAB                    = ITB_ZS1BCT_0001.
+
+
+ENDFORM.                    "displayalv
+
+
+*&---------------------------------------------------------------------*
+*&      Form  write_fieldcat_top
+*&---------------------------------------------------------------------*
+*       字段设置
+*----------------------------------------------------------------------*
+*      --> p_ty_fieldcat 字段表
+*      --> p_c_fieldname 字段名
+*      --> p_c_seltext_s 字段描述
+*
+*----------------------------------------------------------------------*
+FORM WRITE_FIELDCAT_TOP  USING P_TY_FIELDCAT TYPE SLIS_FIELDCAT_ALV
+      P_C_FIELDNAME
+      P_C_SELTEXT_S.
+
+  P_TY_FIELDCAT-TABNAME       = 'ITB_ZS1BCT_0001'.
+  P_TY_FIELDCAT-FIELDNAME     = P_C_FIELDNAME.
+  P_TY_FIELDCAT-SELTEXT_S     = P_C_SELTEXT_S.
+  P_TY_FIELDCAT-SELTEXT_M     = P_C_SELTEXT_S.
+  P_TY_FIELDCAT-SELTEXT_L     = P_C_SELTEXT_S.
+* P_ty_fieldcat-ddictxt       = 'L'.
+  P_TY_FIELDCAT-COL_POS       = N_COLPOS.
+  P_TY_FIELDCAT-OUTPUTLEN     = 100.
+  N_COLPOS = N_COLPOS + 1.
+
+ENDFORM.                    "write_fieldcat_top
+
+
+*&---------------------------------------------------------------------*
+*&      Form  write_fieldcat
+*&---------------------------------------------------------------------*
+*       字段设置
+*----------------------------------------------------------------------*
+*      --> p_ty_fieldcat 字段表
+*      --> p_c_fieldname 字段名
+*      --> p_c_seltext_s 字段描述
+*
+*----------------------------------------------------------------------*
+FORM WRITE_FIELDCAT  USING P_TY_FIELDCAT TYPE SLIS_T_FIELDCAT_ALV
+      P_C_FIELDNAME
+      P_C_SELTEXT_S.
+
+  DATA: L_TY_FIELDCAT TYPE SLIS_FIELDCAT_ALV.
+
+  CLEAR L_TY_FIELDCAT.
+
+  PERFORM WRITE_FIELDCAT_TOP USING L_TY_FIELDCAT P_C_FIELDNAME P_C_SELTEXT_S.
+
+  APPEND L_TY_FIELDCAT TO P_TY_FIELDCAT.
+
+ENDFORM.                    "write_fieldcat
+
+
+*&---------------------------------------------------------------------*
+*&      Form  reuse_alv_events
+*&---------------------------------------------------------------------*
+*       ALV事件名定义
+*----------------------------------------------------------------------*
+*      --> p_itb_events 事件表
+*      --> p_c_program  程序
+*
+*----------------------------------------------------------------------*
+FORM REUSE_ALV_EVENTS TABLES P_ITB_EVENTS TYPE SLIS_T_EVENT
+USING P_C_PROGRAM LIKE SY-REPID.
+
+  P_ITB_EVENTS-FORM = P_ITB_EVENTS-NAME = 'COMMENT_BUILD'.
+  APPEND P_ITB_EVENTS.
+  P_ITB_EVENTS-FORM = P_ITB_EVENTS-NAME = 'USER_COMMAND'.
+  APPEND P_ITB_EVENTS.
+  P_C_PROGRAM = SY-REPID.
+
+ENDFORM.                    "reuse_ty_alv_events
+
+
+*&---------------------------------------------------------------------*
+*&      Form  reuse_events_exit
+*&---------------------------------------------------------------------*
+*       ALV退出事件
+*----------------------------------------------------------------------*
+*      --> p_itb_events_exit 事件退出表
+*
+*----------------------------------------------------------------------*
+FORM REUSE_EVENTS_EXIT TABLES P_ITB_EVENTS_EXIT TYPE SLIS_T_EVENT_EXIT.
+
+  CLEAR P_ITB_EVENTS_EXIT.
+  P_ITB_EVENTS_EXIT-UCOMM = '&IC1'.
+  P_ITB_EVENTS_EXIT-AFTER = CON_CHARX.
+  APPEND P_ITB_EVENTS_EXIT.
+
+  CLEAR P_ITB_EVENTS_EXIT.
+  P_ITB_EVENTS_EXIT-UCOMM = '&REFRESH'.
+  P_ITB_EVENTS_EXIT-AFTER = CON_CHARX.
+  APPEND P_ITB_EVENTS_EXIT.
+
+ENDFORM .                    "reuse_events_exit
+
+
+*&---------------------------------------------------------------------*
+*&      Form  user_command
+*&---------------------------------------------------------------------*
+*       管理定制事件
+*----------------------------------------------------------------------*
+*      --> p_c_ucomm 动作代码
+*      --> p_ty_selfield 选择ID
+*
+*----------------------------------------------------------------------*
+FORM USER_COMMAND USING P_C_UCOMM       LIKE SY-UCOMM
+      P_TY_SELFIELD   TYPE SLIS_SELFIELD.
+
+  P_TY_SELFIELD-REFRESH = 'X'.
+  IF P_C_UCOMM = 'DOWN'."如果点击下载文档，就不用刷新屏幕
+    P_TY_SELFIELD-REFRESH = ''.
+  ENDIF.
+
+
+  CASE P_C_UCOMM.
+    WHEN '&REFRESH'.
+      PERFORM GET_DATA.
+    WHEN OTHERS.
+      PERFORM ALV_COMMAND USING P_C_UCOMM P_TY_SELFIELD.
+      PERFORM GET_DATA.
+  ENDCASE.
+
+ENDFORM .                    "user_command
+
+
+*&---------------------------------------------------------------------*
+*&      Form  comment_build
+*&---------------------------------------------------------------------*
+*       显示列标题
+*----------------------------------------------------------------------*
+*
+*
+*----------------------------------------------------------------------*
+FORM COMMENT_BUILD .
+
+*  DATA: l_ty_line             TYPE slis_listheader.
+*  DATA: l_ty_grid_top_of_page TYPE slis_t_listheader.
+*  DATA: l_c_linfo             TYPE slis_listheader-info.
+*  DATA: l_d_low               LIKE sy-datum.
+*  DATA: l_d_high              LIKE sy-datum.
+*  DATA: l_c_rq(14),l_c_rq1(14).
+*
+*  PERFORM set_alv_top_page_title USING l_c_linfo.
+*
+*  REFRESH l_ty_grid_top_of_page.
+*
+*  CLEAR l_ty_line.
+*  l_ty_line-typ  = 'H'.
+*  l_ty_line-info  = l_c_linfo.
+*  APPEND l_ty_line TO l_ty_grid_top_of_page.
+*
+**  PERFORM alv_top_page_rq USING  l_d_low l_d_high.
+**
+**  IF NOT ( l_d_low IS INITIAL ).
+**
+**    CLEAR l_ty_line.
+**    l_ty_line-typ  = 'S'.
+**    l_ty_line-key  = text-t01. "'日期范围：'
+**
+**    CONCATENATE l_d_low+0(4) text-t02  l_d_low+4(2) text-t03 l_d_low+6(2)  text-t04 INTO l_c_rq.
+**    CONCATENATE l_d_high+0(4) text-t02  l_d_high+4(2) text-t03 l_d_high+6(2) text-t04 INTO l_c_rq1.
+**    CONCATENATE l_c_rq text-006 l_c_rq1 INTO l_ty_line-info.
+**
+**    APPEND l_ty_line TO l_ty_grid_top_of_page.
+**
+**  ENDIF.
+*
+*  CALL FUNCTION 'REUSE_ALV_COMMENTARY_WRITE'
+*    EXPORTING
+*      it_list_commentary = l_ty_grid_top_of_page.
+
+ENDFORM.                    " COMMENT_BUILD
+
+
+*&---------------------------------------------------------------------*
+*&      Form  set_layout
+*&---------------------------------------------------------------------*
+*       设置ALV的布局，主要设置窗口标题
+*----------------------------------------------------------------------*
+*      --> p_ty_alv_layout 布局表
+*
+*----------------------------------------------------------------------*
+FORM SET_LAYOUT USING P_TY_ALV_LAYOUT  TYPE SLIS_LAYOUT_ALV.
+
+  P_TY_ALV_LAYOUT-WINDOW_TITLEBAR = TEXT-H00.
+
+ENDFORM.                    "set_layout
+
+
+*&---------------------------------------------------------------------*
+*&      Form  set_fieldcat
+*&---------------------------------------------------------------------*
+*       设置ALV的列标题
+*----------------------------------------------------------------------*
+*      --> p_ty_fieldcat 列标题表
+*
+*----------------------------------------------------------------------*
+FORM SET_FIELDCAT USING  P_TY_FIELDCAT TYPE SLIS_T_FIELDCAT_ALV.
+  PERFORM WRITE_FIELDCAT USING P_TY_FIELDCAT 'SRTFD' TEXT-H01.    "关键字
+  PERFORM WRITE_FIELDCAT USING P_TY_FIELDCAT 'FILEDESC' TEXT-H02. "描述
+  PERFORM WRITE_FIELDCAT USING P_TY_FIELDCAT 'FILENAME' TEXT-H03. "文件名
+  PERFORM WRITE_FIELDCAT USING P_TY_FIELDCAT 'AEDAT' TEXT-H04.    "修改日期
+  PERFORM WRITE_FIELDCAT USING P_TY_FIELDCAT 'USERA' TEXT-H05.    "修改人
+ENDFORM.                    "set_fieldcat
+
+
+*&---------------------------------------------------------------------*
+*&      Form  set_status
+*&---------------------------------------------------------------------*
+*       设置状态
+*----------------------------------------------------------------------*
+*      --> extab
+*
+*----------------------------------------------------------------------*
+FORM SET_STATUS USING  EXTAB TYPE SLIS_T_EXTAB.
+  SET PF-STATUS 'STANDARD_FULLSCREEN'.
+ENDFORM .                    "set_status
+
+
+*&---------------------------------------------------------------------*
+*&      Form  set_alv_top_page_title
+*&---------------------------------------------------------------------*
+*       设置标题头
+*----------------------------------------------------------------------*
+*      --> p_c_linfo
+*
+*----------------------------------------------------------------------*
+FORM SET_ALV_TOP_PAGE_TITLE USING P_C_LINFO TYPE SLIS_LISTHEADER-INFO.
+  P_C_LINFO = 'OFFICE模板维护程序'.
+ENDFORM.                    "set_alv_top_page_title
+
+
+*&---------------------------------------------------------------------*
+*&      Form  alv_top_page_rq
+*&---------------------------------------------------------------------*
+*       设置标题中的日期范围
+*----------------------------------------------------------------------*
+*      --> p_d_low
+*      --> p_d_high
+*
+*----------------------------------------------------------------------*
+FORM ALV_TOP_PAGE_RQ USING  P_D_LOW TYPE SY-DATUM
+      P_D_HIGH TYPE SY-DATUM.
+ENDFORM.                    "alv_top_page_rq
+
+
+*&---------------------------------------------------------------------*
+*&      Form  alv_command
+*&---------------------------------------------------------------------*
+*       自定义管理定制事件
+*----------------------------------------------------------------------*
+*      --> p_i_ucomm          动作代码
+*      --> p_ty_slis_selfield 选择ID
+*
+*----------------------------------------------------------------------*
+FORM ALV_COMMAND USING P_I_UCOMM           LIKE SY-UCOMM
+      P_TY_SLIS_SELFIELD TYPE SLIS_SELFIELD.
+
+  READ TABLE ITB_ZS1BCT_0001 INDEX P_TY_SLIS_SELFIELD-TABINDEX.
+  DATA ANSWER .
+  CASE P_I_UCOMM.
+    WHEN 'DOWN'.
+      IF P_TY_SLIS_SELFIELD-TABINDEX <> 0.
+        PERFORM DOWNLOAD(ZS1BCR0002) USING ITB_ZS1BCT_0001-SRTFD.
+      ELSE.
+        CALL FUNCTION 'POPUP_TO_DISPLAY_TEXT'
+          EXPORTING
+            TITEL     = TEXT-T10 "下载文件
+            TEXTLINE1 = TEXT-T11 "请选择一个模版！
+          EXCEPTIONS
+            OTHERS    = 1.
+      ENDIF.
+    WHEN 'DELE'.
+      IF P_TY_SLIS_SELFIELD-TABINDEX <> 0.
+        CALL FUNCTION 'POPUP_TO_CONFIRM'
+          EXPORTING
+            TITLEBAR              = TEXT-T12  "确认
+            TEXT_QUESTION         = TEXT-T13  "你确实要删除这个文件吗？
+            TEXT_BUTTON_1         = TEXT-T14 "确定
+            TEXT_BUTTON_2         = TEXT-T15 "取消
+            DEFAULT_BUTTON        = '2'
+            DISPLAY_CANCEL_BUTTON = ' '
+            START_COLUMN          = 10
+            START_ROW             = 6
+          IMPORTING
+            ANSWER                = ANSWER.
+        IF ANSWER =  '1'.
+          DELETE FROM DATABASE ZS1BCT_0001(CN) ID ITB_ZS1BCT_0001-SRTFD.
+        ENDIF.
+      ELSE.
+        CALL FUNCTION 'POPUP_TO_DISPLAY_TEXT'
+          EXPORTING
+            TITEL     = TEXT-T16 "删除文件
+            TEXTLINE1 = TEXT-T17 "请选择一个文件！
+          EXCEPTIONS
+            OTHERS    = 1.
+      ENDIF.
+    WHEN 'UPLOAD'.
+      SUBMIT ZS1BCR0002 VIA SELECTION-SCREEN AND RETURN.
+    WHEN 'UPDATE'.
+      IF P_TY_SLIS_SELFIELD-TABINDEX <> 0.
+        SUBMIT ZS1BCR0002 WITH SRTFD EQ ITB_ZS1BCT_0001-SRTFD
+        WITH FILEDESC EQ ITB_ZS1BCT_0001-FILEDESC
+        VIA SELECTION-SCREEN AND RETURN.
+      ELSE.
+        CALL FUNCTION 'POPUP_TO_DISPLAY_TEXT'
+          EXPORTING
+            TITEL     = TEXT-T18 "更新文件
+            TEXTLINE1 = TEXT-T19 "请选择一个文件！
+          EXCEPTIONS
+            OTHERS    = 1.
+      ENDIF.
+  ENDCASE.
+ENDFORM .                    "alv_command
+
+*&---------------------------------------------------------------------*
+*&      Form  get_data
+*&---------------------------------------------------------------------*
+*       取数据
+*----------------------------------------------------------------------*
+*
+*
+*----------------------------------------------------------------------*
+FORM GET_DATA.
+
+  SELECT DISTINCT SRTFD AEDAT USERA FILENAME FILEDESC
+  INTO CORRESPONDING FIELDS OF TABLE ITB_ZS1BCT_0001
+  FROM ZS1BCT_0001
+  WHERE RELID = 'CN'.
+
+  SORT ITB_ZS1BCT_0001 BY SRTFD.
+
+ENDFORM.                    " get_data
+
+
+*&---------------------------------------------------------------------*
+*&      Form  html_top_of_page
+*&---------------------------------------------------------------------*
+*       ALV标题设置
+*----------------------------------------------------------------------*
+*      -->DOCUMENT   text
+*----------------------------------------------------------------------*
+FORM HTML_TOP_OF_PAGE USING DOCUMENT TYPE REF TO CL_DD_DOCUMENT.
+
+  DATA L_C_TEXT TYPE SDYDO_TEXT_ELEMENT.
+  DATA L_I_POSITION TYPE I.
+  DATA L_STR_TITLE TYPE STRING.
+
+  CONCATENATE
+  '<div style="text-align:center;font-size:26px; font-family:黑体">'
+  SY-TITLE
+  '</DIV>'
+  INTO L_STR_TITLE.
+
+  SEARCH DOCUMENT->HTML_TABLE FOR DOCUMENT->CURSOR.
+
+  IF SY-SUBRC EQ 0.
+    L_I_POSITION = SY-TABIX.
+    CALL METHOD DOCUMENT->HTML_INSERT
+      EXPORTING
+        CONTENTS = L_STR_TITLE
+      CHANGING
+        POSITION = L_I_POSITION.
+  ENDIF.
+
+ENDFORM.                    "alv_html_top_of_page
